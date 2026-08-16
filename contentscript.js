@@ -649,13 +649,13 @@ const renderMatchWidget = (percent, onClick) => {
     font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     font-size: 14px;
     width: 280px;
-    background: linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(26, 31, 62, 0.95) 100%);
+    background: linear-gradient(135deg, rgba(10, 15, 30, 0.92) 0%, rgba(26, 31, 62, 0.92) 100%);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: none;
     border-radius: 16px;
     padding: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     color: #e5e7eb;
   `;
   
@@ -743,7 +743,7 @@ const renderMatchWidget = (percent, onClick) => {
         padding: 10px 12px;
         background: rgba(255,255,255,0.05);
         color: #cbd5e1;
-        border: 1px solid rgba(255,255,255,0.1);
+        border: none;
         border-radius: 8px;
         font-size: 12px;
         font-weight: 500;
@@ -758,7 +758,7 @@ const renderMatchWidget = (percent, onClick) => {
         padding: 8px;
         background: rgba(99, 102, 241, 0.15);
         color: #a5b4fc;
-        border: 1px solid rgba(99, 102, 241, 0.3);
+        border: none;
         border-radius: 6px;
         font-size: 11px;
         cursor: pointer;
@@ -769,7 +769,7 @@ const renderMatchWidget = (percent, onClick) => {
         padding: 8px;
         background: rgba(14, 165, 233, 0.15);
         color: #7dd3fc;
-        border: 1px solid rgba(14, 165, 233, 0.3);
+        border: none;
         border-radius: 6px;
         font-size: 11px;
         cursor: pointer;
@@ -777,7 +777,7 @@ const renderMatchWidget = (percent, onClick) => {
       ">📋 Tracker</button>
     </div>
     
-    <div style="text-align: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">
+    <div style="text-align: center; margin-top: 10px; padding-top: 10px;">
       <span style="font-size: 9px; color: rgba(255,255,255,0.3);">Privacy-first • Local AI • No data shared</span>
     </div>
   `;
