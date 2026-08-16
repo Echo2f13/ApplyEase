@@ -1,11 +1,17 @@
 
-const API_BASE = "http://localhost:8000";
+console.log("ApplyEase: Content script loading...");
+
+const API_BASE = "http://127.0.0.1:8000";
 
 // ------- Helpers -------
 const getToken = () =>
   new Promise((resolve) =>
     chrome.storage.local.get("token", (d) => resolve(d?.token || null))
   );
+
+// Mark that content script is loaded (for debugging)
+window.__APPLYEASE_LOADED__ = true;
+console.log("ApplyEase: Content script initialized on", window.location.href);
 
 const fetchUserDetails = async (token) => {
   const headers = { Authorization: `Bearer ${token}` };
@@ -58,10 +64,48 @@ const uploadFile = (input, file) => {
 
 const setValue = (el, val) => {
   if (!el) return;
+  console.log("ApplyEase: setValue called for", el.outerHTML?.substring(0, 100), "with value:", val);
+  
+  // Focus the element
   el.focus();
-  el.value = val;
-  el.dispatchEvent(new Event("input", { bubbles: true }));
+  
+  // Get the native value setter for React compatibility
+  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+  
+  // Use native setter if available (bypasses React's synthetic event system)
+  if (el.tagName === 'INPUT' && nativeInputValueSetter) {
+    nativeInputValueSetter.call(el, val);
+  } else if (el.tagName === 'TEXTAREA' && nativeTextAreaValueSetter) {
+    nativeTextAreaValueSetter.call(el, val);
+  } else {
+    el.value = val;
+  }
+  
+  // Dispatch multiple events to trigger various frameworks (React, Angular, Vue, etc.)
+  const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+  el.dispatchEvent(inputEvent);
+  
+  // React 16+ uses this
+  const nativeInputEvent = new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: val });
+  el.dispatchEvent(nativeInputEvent);
+  
+  // Some frameworks listen to change
+  const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+  el.dispatchEvent(changeEvent);
+  
+  // Keyboard events for frameworks that track them
+  const keydownEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a' });
+  const keyupEvent = new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'a' });
+  el.dispatchEvent(keydownEvent);
+  el.dispatchEvent(keyupEvent);
+  
+  // Blur to trigger validation
   el.blur();
+  const blurEvent = new FocusEvent('blur', { bubbles: true, cancelable: true });
+  el.dispatchEvent(blurEvent);
+  
+  console.log("ApplyEase: setValue completed, current value:", el.value);
 };
 
 const closestLabelText = (input) => {
@@ -262,52 +306,213 @@ const addFillButtonsForTextareas = () => {
 };
 
 const fillForm = async (values) => {
+  console.log("ApplyEase: Scanning for form fields...");
+  
+  // Get all possible input types including those with unusual attributes
   const inputs = Array.from(
-    document.querySelectorAll("input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],input[type=file],input:not([type])")
+    document.querySelectorAll("input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],input[type=file],input[type=Text],input[type=Email],input:not([type])")
   );
+  
+  console.log("ApplyEase: Found", inputs.length, "input fields");
+
+  // Helper to get all identifying text for an input
+  const getFieldIdentifiers = (i) => {
+    const parts = [
+      i.name || "",
+      i.id || "",
+      i.placeholder || "",
+      i.getAttribute("aria-label") || "",
+      i.getAttribute("aria-labelledby") || "",  // This contains "actionItem.firstName.idTag-error" on Cornerstone
+      i.getAttribute("data-automation-id") || "",
+      i.className || "",
+      closestLabelText(i)
+    ];
+    return parts.join(" ").toLowerCase();
+  };
 
   // Fill name combinations
-  const firstNameEls = inputs.filter((i) =>
-    /(first[ _-]*name|given|forename)/i.test(
-      (i.name || "") + " " + (i.id || "") + " " + closestLabelText(i)
-    )
-  );
-  const lastNameEls = inputs.filter((i) =>
-    /(last[ _-]*name|surname|family)/i.test(
-      (i.name || "") + " " + (i.id || "") + " " + closestLabelText(i)
-    )
-  );
+  const firstNameEls = inputs.filter((i) => {
+    const text = getFieldIdentifiers(i);
+    // Match patterns like "firstname", "first_name", "first-name", "first name", "actionItem.firstName"
+    return /(first[ _.-]*name|firstname|\.firstname\.|given|forename)/i.test(text);
+  });
+  const lastNameEls = inputs.filter((i) => {
+    const text = getFieldIdentifiers(i);
+    // Match patterns like "lastname", "last_name", "last-name", "last name", "actionItem.lastName"
+    return /(last[ _.-]*name|lastname|\.lastname\.|surname|family)/i.test(text);
+  });
+  
+  console.log("ApplyEase: Found first name fields:", firstNameEls.length, "last name fields:", lastNameEls.length);
+  
   if (firstNameEls.length && lastNameEls.length) {
-    firstNameEls.forEach((el) => setValue(el, values.first_name || ""));
-    lastNameEls.forEach((el) => setValue(el, values.last_name || ""));
+    firstNameEls.forEach((el) => { console.log("ApplyEase: Filling first name:", el); setValue(el, values.first_name || ""); });
+    lastNameEls.forEach((el) => { console.log("ApplyEase: Filling last name:", el); setValue(el, values.last_name || ""); });
   } else {
     // Only treat as full name if explicitly labeled as such and not first/last specific
     const isFullName = (i) => {
-      const text = ((i.name || "") + " " + (i.id || "") + " " + closestLabelText(i)).toLowerCase();
+      const text = getFieldIdentifiers(i);
       if (/(first|last|given|family|surname)/i.test(text)) return false;
       return /(full[ _-]*name|^name$|\bname\b)/i.test(text);
     };
     const fullNameEl = inputs.find((i) => isFullName(i));
-    if (fullNameEl) setValue(fullNameEl, `${values.first_name || ""} ${values.last_name || ""}`.trim());
+    if (fullNameEl) {
+      console.log("ApplyEase: Filling full name:", fullNameEl);
+      setValue(fullNameEl, `${values.first_name || ""} ${values.last_name || ""}`.trim());
+    }
   }
 
   // Email, phone, location
   const map = [
-    { key: "email", re: /email|e-mail/i },
-    { key: "phone", re: /phone|mobile|tel/i },
-    { key: "location", re: /location|city|address/i },
+    { key: "email", re: /email|e-mail|\.email\./i },
+    { key: "phone", re: /phone|mobile|tel|\.phone\./i },
   ];
   for (const { key, re } of map) {
-    const el = inputs.find((i) => re.test(i.name || i.id || closestLabelText(i)));
-    if (el && values[key]) setValue(el, values[key]);
+    const el = inputs.find((i) => re.test(getFieldIdentifiers(i)));
+    if (el && values[key]) {
+      console.log(`ApplyEase: Filling ${key}:`, el.outerHTML?.substring(0, 150));
+      setValue(el, values[key]);
+    } else if (!el) {
+      console.log(`ApplyEase: No field found for ${key}`);
+    }
+  }
+
+  // Extended fields - all profile fields
+  const extendedFields = [
+    // Address
+    { key: "address_line1", re: /address[_\s-]*(line)?[_\s-]*1|street|address$/i },
+    { key: "address_line2", re: /address[_\s-]*(line)?[_\s-]*2|apt|suite|unit/i },
+    { key: "city", re: /\bcity\b/i },
+    { key: "state", re: /\bstate\b|province/i },
+    { key: "zip_code", re: /zip|postal|postcode/i },
+    { key: "location", re: /location|current.*location/i },
+    // Personal Details
+    { key: "date_of_birth", re: /birth|dob|date.*birth/i },
+    { key: "nationality", re: /nationality|citizenship/i },
+    // Employment
+    { key: "current_company", re: /current.*company|company.*name|employer/i },
+    { key: "current_salary", re: /current.*salary|present.*salary/i },
+    { key: "desired_salary", re: /desired.*salary|expected.*salary|salary.*expect/i },
+    { key: "years_of_experience", re: /years.*experience|experience.*years|total.*experience/i },
+    { key: "available_start_date", re: /start.*date|available.*date|availability|join.*date/i },
+    // Links
+    { key: "linkedin_url", re: /linkedin/i },
+    { key: "github_url", re: /github/i },
+    { key: "portfolio_url", re: /portfolio|website|personal.*site/i },
+    { key: "website_url", re: /website|homepage|personal.*url/i },
+    // Emergency Contact
+    { key: "emergency_contact_name", re: /emergency.*name|contact.*name/i },
+    { key: "emergency_contact_phone", re: /emergency.*phone|emergency.*tel/i },
+    { key: "emergency_contact_relationship", re: /emergency.*relation|contact.*relation/i },
+  ];
+  for (const { key, re } of extendedFields) {
+    const el = inputs.find((i) => re.test(getFieldIdentifiers(i)));
+    if (el && values[key]) {
+      console.log(`ApplyEase: Filling ${key}:`, el.outerHTML?.substring(0, 150));
+      setValue(el, values[key]);
+    }
+  }
+
+  // Handle select/dropdown fields
+  const selects = Array.from(document.querySelectorAll("select"));
+  console.log("ApplyEase: Found", selects.length, "select fields");
+  
+  // Helper to fill a dropdown
+  const fillDropdown = (fieldName, value, patterns) => {
+    if (!value) return;
+    const sel = selects.find((s) => patterns.test(getFieldIdentifiers(s)));
+    if (sel) {
+      console.log(`ApplyEase: Filling ${fieldName} dropdown`);
+      const options = Array.from(sel.options);
+      // Try exact match first, then partial
+      let match = options.find((o) => o.value.toLowerCase() === value.toLowerCase() || o.text.toLowerCase() === value.toLowerCase());
+      if (!match) {
+        match = options.find((o) => o.value.toLowerCase().includes(value.toLowerCase()) || o.text.toLowerCase().includes(value.toLowerCase()));
+      }
+      if (match) {
+        sel.value = match.value;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+  };
+
+  // Personal Details dropdowns
+  fillDropdown("gender", values.gender, /gender|sex/i);
+  fillDropdown("pronouns", values.pronouns, /pronoun/i);
+  
+  // Work Authorization dropdowns
+  fillDropdown("work_authorization", values.work_authorization, /work.*auth|authorization|eligibility|status/i);
+  fillDropdown("visa_type", values.visa_type, /visa.*type|visa.*status/i);
+  fillDropdown("requires_sponsorship", values.requires_sponsorship, /sponsorship|sponsor/i);
+  fillDropdown("legally_authorized", values.legally_authorized, /legally.*auth|authorized.*work|legal.*work/i);
+  
+  // Employment dropdowns
+  fillDropdown("years_of_experience", values.years_of_experience, /years.*experience|experience.*years/i);
+  fillDropdown("notice_period", values.notice_period, /notice.*period/i);
+  fillDropdown("employment_type", values.employment_type, /employment.*type|job.*type|work.*type/i);
+  fillDropdown("remote_preference", values.remote_preference, /remote|work.*location|workplace/i);
+  fillDropdown("relocation", values.relocation, /relocation|relocate|willing.*move/i);
+  fillDropdown("willing_to_travel", values.willing_to_travel, /travel|traveling/i);
+  fillDropdown("salary_currency", values.salary_currency, /currency/i);
+  
+  // Screening Questions dropdowns
+  fillDropdown("hear_about_us", values.hear_about_us, /hear.*about|how.*find|source/i);
+  fillDropdown("applied_before", values.applied_before, /applied.*before|previous.*appl/i);
+  fillDropdown("worked_here_before", values.worked_here_before, /worked.*before|worked.*here|former.*employee/i);
+  fillDropdown("has_relatives_here", values.has_relatives_here, /relative|family.*member|relation/i);
+  
+  // Background dropdowns
+  fillDropdown("has_drivers_license", values.has_drivers_license, /driver.*license|driving.*license/i);
+  fillDropdown("has_vehicle", values.has_vehicle, /vehicle|car|transport/i);
+  fillDropdown("security_clearance", values.security_clearance, /security.*clearance|clearance/i);
+  fillDropdown("disability_status", values.disability_status, /disability|disabled/i);
+  fillDropdown("veteran_status", values.veteran_status, /veteran|military/i);
+  
+  // Country dropdown (special handling for variations)
+  if (values.country) {
+    const countrySelect = selects.find((s) => /country/i.test(getFieldIdentifiers(s)));
+    if (countrySelect) {
+      console.log("ApplyEase: Filling country dropdown");
+      const options = Array.from(countrySelect.options);
+      // Try common variations: India, IN, IND
+      const variations = [values.country, values.country.substring(0, 2).toUpperCase(), values.country.substring(0, 3).toUpperCase()];
+      let match = null;
+      for (const v of variations) {
+        match = options.find((o) => o.value.toLowerCase() === v.toLowerCase() || o.text.toLowerCase() === v.toLowerCase());
+        if (match) break;
+        match = options.find((o) => o.value.toLowerCase().includes(v.toLowerCase()) || o.text.toLowerCase().includes(v.toLowerCase()));
+        if (match) break;
+      }
+      if (match) {
+        countrySelect.value = match.value;
+        countrySelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+  }
+
+  // State/Province dropdown
+  if (values.state) {
+    const stateSelect = selects.find((s) => /state|province|region/i.test(getFieldIdentifiers(s)));
+    if (stateSelect) {
+      console.log("ApplyEase: Filling state dropdown");
+      const options = Array.from(stateSelect.options);
+      let match = options.find((o) => o.value.toLowerCase() === values.state.toLowerCase() || o.text.toLowerCase() === values.state.toLowerCase());
+      if (!match) match = options.find((o) => o.value.toLowerCase().includes(values.state.toLowerCase()) || o.text.toLowerCase().includes(values.state.toLowerCase()));
+      if (match) {
+        stateSelect.value = match.value;
+        stateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
   }
 
   // URLs (e.g., LinkedIn, GitHub)
   (values.urls || []).forEach((u) => {
     const type = (u.type || "").toLowerCase();
     const url = u.url || "";
-    const el = inputs.find((i) => (i.name + " " + (i.id || "") + " " + closestLabelText(i)).toLowerCase().includes(type));
-    if (el && url) setValue(el, url);
+    const el = inputs.find((i) => getFieldIdentifiers(i).includes(type));
+    if (el && url) {
+      console.log(`ApplyEase: Filling URL ${type}:`, el);
+      setValue(el, url);
+    }
   });
 
   // Resume upload (robust): target inputs labeled resume/cv and reveal hidden inputs if necessary
@@ -318,17 +523,16 @@ const fillForm = async (values) => {
       .filter((l) => /resume|cv/i.test(l.textContent || ""))
       .map((l) => (l.htmlFor ? document.getElementById(l.htmlFor) : l.querySelector("input[type=file]")))
       .filter(Boolean);
-    return Array.from(new Set([...byAttr, ...labeled]));
+    // Also find ANY file input if none specifically for resume
+    const allFileInputs = Array.from(document.querySelectorAll("input[type=file]"));
+    return Array.from(new Set([...byAttr, ...labeled, ...allFileInputs]));
   };
 
   const ensureVisible = (input) => {
-    // Do NOT programmatically click labels/buttons; that can open the file picker.
-    // Just attempt to scroll into view; if hidden, we will try a drag&drop fallback.
     try { input.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
   };
 
   const tryDropFile = (file) => {
-    // Attempt to dispatch a synthetic drop event on common dropzones
     const dzSelectors = [
       ".dropzone", "[data-testid*='drop']", "[data-qa*='drop']", "[data-automation-id*='drop']",
       ".upload-dropzone", ".file-dropzone", "[aria-label*='drop']"
@@ -352,6 +556,8 @@ const fillForm = async (values) => {
   };
 
   const resumeInputs = findResumeInputs();
+  console.log("ApplyEase: Found", resumeInputs.length, "file input(s)");
+  
   if (resumeInputs.length) {
     let fileToUse = values.resume || null;
     try {
@@ -372,17 +578,19 @@ const fillForm = async (values) => {
       }
     } catch (e) {}
     if (fileToUse) {
+      console.log("ApplyEase: Attempting to upload resume:", fileToUse.name);
       let uploaded = false;
       resumeInputs.forEach((fi) => {
         ensureVisible(fi);
         const ok = uploadFile(fi, fileToUse);
         if (ok) {
+          console.log("ApplyEase: Resume uploaded to:", fi);
           try { fi.dispatchEvent(new Event("blur", { bubbles: true })); } catch {}
           uploaded = true;
         }
       });
       if (!uploaded) {
-        // Fallback to dropzone simulation if direct assignment blocked
+        console.log("ApplyEase: Trying dropzone fallback");
         tryDropFile(fileToUse);
       }
     }
@@ -390,6 +598,7 @@ const fillForm = async (values) => {
 
   // Also ensure Fill buttons are present after autofill
   addFillButtonsForTextareas();
+  console.log("ApplyEase: Autofill process finished");
 };
 
 // ------- Widget -------
@@ -443,11 +652,25 @@ const renderMatchWidget = (percent, onClick) => {
 
 // ------- Messaging -------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "ping") {
+    sendResponse({ ok: true });
+    return true;
+  }
   if (message.action === "fillInputFields") {
     const token = message.data;
+    console.log("ApplyEase: Starting autofill...");
     fetchUserDetails(token)
-      .then((values) => fillForm(values))
-      .catch((e) => console.log("ApplyEase autofill error", e))
+      .then((values) => {
+        console.log("ApplyEase: Got user details:", { 
+          first_name: values.first_name, 
+          last_name: values.last_name,
+          email: values.email,
+          hasResume: !!values.resume 
+        });
+        return fillForm(values);
+      })
+      .then(() => console.log("ApplyEase: Autofill completed"))
+      .catch((e) => console.error("ApplyEase autofill error:", e))
       .finally(() => sendResponse({ ok: true }));
     return true; // async
   }
