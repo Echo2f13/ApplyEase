@@ -610,7 +610,11 @@ def match_for_user(req: MatchForUserRequest):
 
 # ===== Auth & Users (migrated from Node) =====
 
-JWT_KEY = os.getenv("JWT_KEY", "dev-secret")
+JWT_KEY = os.getenv("JWT_KEY")
+if not JWT_KEY:
+    import warnings
+    warnings.warn("JWT_KEY not set! Using insecure default. Set JWT_KEY in .env for production!")
+    JWT_KEY = "dev-secret-CHANGE-ME"
 JWT_EXPIRES_IN_MIN = int(os.getenv("JWT_EXPIRES_IN_MIN", "60"))
 
 
@@ -799,6 +803,16 @@ def _user_row_to_out(row) -> UserOut:
 
 @app.post("/signup")
 def signup(req: SignupRequest):
+    # Password strength validation
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if not any(c.isupper() for c in req.password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter")
+    if not any(c.islower() for c in req.password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one lowercase letter")
+    if not any(c.isdigit() for c in req.password):
+        raise HTTPException(status_code=400, detail="Password must contain at least one number")
+    
     user_id = str(uuid.uuid4())
     pw_hash = _hash_password(req.password)
     conn = _conn()
