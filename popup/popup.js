@@ -42,16 +42,59 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  // Inject content script if not already loaded - more aggressive injection
+  const ensureContentScript = (tabId) => {
+    return new Promise((resolve) => {
+      console.log("ApplyEase popup: Checking if content script is loaded on tab", tabId);
+      
+      // First try to ping the content script
+      chrome.tabs.sendMessage(tabId, { action: "ping" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("ApplyEase popup: Content script not responding, injecting...", chrome.runtime.lastError.message);
+        }
+        
+        if (!response || chrome.runtime.lastError) {
+          // Content script not loaded, inject it programmatically
+          console.log("ApplyEase popup: Injecting content script...");
+          
+          chrome.scripting.executeScript({
+            target: { tabId: tabId, allFrames: true },
+            files: ["contentscript.js"]
+          }, (results) => {
+            if (chrome.runtime.lastError) {
+              console.error("ApplyEase popup: Failed to inject content script:", chrome.runtime.lastError.message);
+            } else {
+              console.log("ApplyEase popup: Content script injected successfully", results);
+            }
+            // Give it time to initialize
+            setTimeout(resolve, 800);
+          });
+        } else {
+          console.log("ApplyEase popup: Content script already loaded", response);
+          resolve();
+        }
+      });
+    });
+  };
+
   const initWithToken = (token) => {
     if (token) {
+        console.log("ApplyEase popup: Token found, initializing autofill button");
         document.getElementById("filling-text").style.display = "none";
         document.getElementById("loading").style.display = "none";
         const button = document.getElementById("auto-fill");
         button.addEventListener("click", () => {
+          console.log("ApplyEase popup: Auto Fill button clicked");
           document.getElementById("loading").style.display = "flex";
           chrome.tabs.query(
             { active: true, currentWindow: true },
             async (tabs) => {
+              console.log("ApplyEase popup: Active tab:", tabs[0]?.id, tabs[0]?.url);
+              
+              // Ensure content script is injected first
+              await ensureContentScript(tabs[0].id);
+              
+              console.log("ApplyEase popup: Sending fillInputFields message...");
               chrome.tabs.sendMessage(
                 tabs[0].id,
                 {
@@ -59,7 +102,10 @@ document.addEventListener("DOMContentLoaded", () => {
                   data: token,
                 },
                 (response) => {
-                  console.log(response);
+                  console.log("ApplyEase popup: fillInputFields response:", response);
+                  if (chrome.runtime.lastError) {
+                    console.error("ApplyEase popup: Error sending message:", chrome.runtime.lastError.message);
+                  }
                   document.getElementById("loading").style.display = "none";
                 }
               );
@@ -75,6 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Render match immediately when popup opens
         renderMatch(token);
     } else {
+      console.log("ApplyEase popup: No token found, showing login button");
       const loginBtn = document.getElementById("auto-fill");
       loginBtn.innerHTML = "Login to Auto Fill";
       loginBtn.addEventListener("click", () => {

@@ -1,21 +1,21 @@
 # Core backend
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
 
 # Embeddings
-sentence-transformers==2.7.0
+sentence-transformers>=2.7.0
 
 # PostgreSQL + pgvector
-psycopg2-binary==2.9.10
-pgvector==0.2.5
+psycopg2-binary>=2.9.10
+pgvector>=0.2.5
 
-# Utilities
-scikit-learn==1.4.0
-numpy==1.26.4
-PyJWT==2.8.0
-bcrypt==4.1.2
-python-multipart==0.0.9
-pdfminer.six==20231228
-openai==1.40.2
-requests==2.32.3
-reportlab==4.0.7
+# Utilities - using newer versions with pre-built wheels
+scikit-learn>=1.5.0
+numpy>=1.26.4
+PyJWT>=2.8.0
+bcrypt>=4.1.2
+python-multipart>=0.0.9
+pdfminer.six>=20231228
+openai>=1.40.2
+requests>=2.32.3
+reportlab>=4.0.7
