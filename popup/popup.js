@@ -3,16 +3,58 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Quick action buttons
   document.getElementById("open-dashboard")?.addEventListener("click", () => {
-    chrome.tabs.create({ url: "http://localhost:3000/dashboard" });
+    chrome.tabs.create({ url: "http://127.0.0.1:8000" });
   });
   
   document.getElementById("open-cover-letter")?.addEventListener("click", () => {
-    chrome.tabs.create({ url: "http://localhost:3000/dashboard?tab=tools" });
+    chrome.tabs.create({ url: "http://127.0.0.1:8000/dashboard?tab=tools" });
   });
   
   document.getElementById("open-resume")?.addEventListener("click", () => {
-    chrome.tabs.create({ url: "http://localhost:3000/dashboard?tab=links" });
+    chrome.tabs.create({ url: "http://127.0.0.1:8000/dashboard?tab=links" });
   });
+
+  // Check if backend is running
+  const checkBackend = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/healthz", { method: "GET" });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const showBackendOffline = () => {
+    const card = document.querySelector(".glass-card");
+    if (card) {
+      card.innerHTML = `
+        <div class="header">
+          <img class="logo" src="./icon2.png" alt="ApplyEase">
+          <div class="brand">
+            <div class="brand-name">ApplyEase</div>
+            <div class="brand-tagline">Backend Not Running</div>
+          </div>
+        </div>
+        <div style="text-align: center; padding: 20px 0;">
+          <div style="font-size: 40px; margin-bottom: 12px;">🔌</div>
+          <div style="font-size: 14px; color: rgba(255,255,255,0.8); margin-bottom: 8px;">
+            ApplyEase server is not running
+          </div>
+          <div style="font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 16px;">
+            Please start ApplyEase.exe first
+          </div>
+          <button id="retry-connection" class="btn btn-primary" style="width: 100%;">
+            <span>🔄</span>
+            <span>Retry Connection</span>
+          </button>
+        </div>
+      `;
+      
+      document.getElementById("retry-connection")?.addEventListener("click", () => {
+        location.reload();
+      });
+    }
+  };
 
   const renderMatch = (token) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -174,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       
       trackerBtn.addEventListener("click", () => {
-        chrome.tabs.create({ url: "http://localhost:3000/job-tracker" });
+        chrome.tabs.create({ url: "http://127.0.0.1:8000/job-tracker" });
       });
       
       // Render match immediately
@@ -186,25 +228,36 @@ document.addEventListener("DOMContentLoaded", () => {
       // Update UI for logged out state
       autoFillBtn.innerHTML = '<span>🔑</span><span>Login to Start</span>';
       autoFillBtn.addEventListener("click", () => {
-        chrome.tabs.create({ url: "http://localhost:3000/login" });
+        chrome.tabs.create({ url: "http://127.0.0.1:8000/login" });
       });
       
       trackerBtn.addEventListener("click", () => {
-        chrome.tabs.create({ url: "http://localhost:3000/login" });
+        chrome.tabs.create({ url: "http://127.0.0.1:8000/login" });
       });
     }
   };
 
   // Get token and initialize
-  chrome.runtime.sendMessage({ action: "fetchToken" }, (token) => {
-    if (token) return initWithToken(token);
-    
-    // Fallback: ask content script to sync from page localStorage
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs || !tabs[0]) return initWithToken(null);
-      chrome.tabs.sendMessage(tabs[0].id, { action: "getOrSyncToken" }, (resp) => {
-        initWithToken(resp?.token || null);
+  const init = async () => {
+    // First check if backend is running
+    const backendRunning = await checkBackend();
+    if (!backendRunning) {
+      showBackendOffline();
+      return;
+    }
+
+    chrome.runtime.sendMessage({ action: "fetchToken" }, (token) => {
+      if (token) return initWithToken(token);
+      
+      // Fallback: ask content script to sync from page localStorage
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs || !tabs[0]) return initWithToken(null);
+        chrome.tabs.sendMessage(tabs[0].id, { action: "getOrSyncToken" }, (resp) => {
+          initWithToken(resp?.token || null);
+        });
       });
     });
-  });
+  };
+
+  init();
 });
